@@ -1,0 +1,22 @@
+{
+  "name": "oliver-prada-services",
+  "version": "1.0.0",
+  "description": "Netlify Functions for Oliver Prada Services",
+  "main": "index.js",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "netlify build",
+    "functions:build": "netlify functions:build",
+    "functions:invoke": "netlify functions:invoke"
+  },
+  "dependencies": {
+    "stripe": "^14.0.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^1.0.0",
+    "typescript": "^5.2.0",
+    "@types/node": "^20.0.0"
+  }
+}

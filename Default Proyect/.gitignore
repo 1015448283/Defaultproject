@@ -1,0 +1,21 @@
+C:/node_modules
+/dist
+.env
+.env.local
+*.log
+.DS_Store
+*.pem
+coverage
+.nyc_output
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional TS build info
+*.tsbuildinfo
+
+# Optional stylelint cache
+.stylelintcache
