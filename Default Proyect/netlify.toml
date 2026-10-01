@@ -11,7 +11,7 @@
   node_version = "18"
   external_node_modules = ["stripe", "@supabase/supabase-js", "axios"]
 
-# Redirección para SPA (React Router)
+# Redirección obligatoria para React Router (SPA)
 [[redirects]]
   from = "/*"
   to = "/index.html"
