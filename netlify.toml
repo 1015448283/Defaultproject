@@ -1,5 +1,0 @@
-# Root Netlify configuration pointing to the application directory
-[build]
-  base = "Default Proyect"
-  publish = "Default Proyect/dist"
-  command = "npm run build"
