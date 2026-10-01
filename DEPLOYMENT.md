@@ -1,160 +1,121 @@
-# GUÍA DEFINITIVA DE DESPLIEGUE A PRODUCCIÓN
+# Despliegue — Oliver Prada Servicios
 
-**Proyecto:** Oliver Prada - Servicios Técnicos (Página Web Personal Brand)  
-**Arquitectura:** JAMstack + PWA (React 18 + Vite + Netlify Functions + Supabase)
+Guía para publicar la PWA en **Netlify** (hosting real) y desde **Google Antigravity** (agente que despliega *en* Netlify). No hay hosting llamado Antigravity.
 
----
+## Estructura del repositorio
 
-## 📋 Resumen del Pipeline de Despliegue
+El Git root es `Default_Project`. El sitio Vite **no** está en la raíz:
 
-```
-[Código en GitHub]
-       │
-       ▼ (Push a main / master)
-[GitHub Actions CI/CD] ────▶ [Type Check: tsc] ────▶ [Build: Vite PWA]
-       │
-       ▼ (Artefactos compilados)
-[Netlify CDN + Functions] ◀───▶ [Supabase PostgreSQL (BaaS)]
-       │                                  │
-       ▼                                  ▼
-[Stripe Checkout] ─────────── Webhook ────┘
-```
+| Ruta | Contenido |
+|------|-----------|
+| `Default Proyect/` | App (React + Vite), `package.json`, Functions, `netlify.toml` local |
+| `Documentacion/` | Brief y specs de arquitectura |
+| `Agentes/` | Prompts de roles (no son runbooks de producción) |
+| `netlify.toml` | Config de Netlify con `base = "Default Proyect"` |
+| `DEPLOYMENT.md` | Este archivo |
 
----
+El nombre de carpeta **incluye un espacio** (`Default Proyect`). No se movió la app a la raíz para no romper rutas locales. En Netlify UI, si *no* usas el `netlify.toml` de la raíz, define **Base directory** = `Default Proyect` (con espacio). En scripts, entrecomilla la ruta: `"Default Proyect"`.
 
-## PASO 1: Configuración de Base de Datos en Supabase
+## Ruta recomendada: Netlify (no Docker)
 
-1. **Crear Proyecto en Supabase:**
-   - Ingresa a [supabase.com](https://supabase.com) y crea una nueva organización y proyecto.
-   - Selecciona la región más cercana (ej. `us-east-1` o `sa-east-1` para Sudamérica).
+Docker + Nginx solo sirve `dist`. Pagos y WhatsApp viven en Netlify Functions; un contenedor estático **no** las ejecuta.
 
-2. **Ejecutar Migración de Tablas y Seguridad (RLS):**
-   - En el panel de Supabase, navega a **SQL Editor**.
-   - Abre y copia el contenido del archivo:
-     [`Default Proyect/supabase/migrations/001_initial_schema.sql`](file:///c:/Users/olive/OneDrive/Documentos/Default_Project/Default%20Proyect/supabase/migrations/001_initial_schema.sql)
-   - Haz clic en **Run**. Esto creará:
-     - 10 tablas relacionales (`usuarios`, `contactos`, `proyectos`, `servicios`, `proyecto_servicios`, `pagos`, `agendamientos`, `disponibilidad`, `redes_sociales`, `portafolio`, `testimonios`, `contenido`).
-     - Función y trigger para sincronizar `auth.users` con `public.usuarios`.
-     - Funciones RPC `get_dashboard_metrics()` y `get_available_slots()`.
-     - Políticas Row Level Security (RLS) en todas las tablas.
+| Setting | Valor |
+|---------|--------|
+| Base directory | `Default Proyect` (o confiar en el `netlify.toml` de la raíz) |
+| Build command | `npm run build` |
+| Publish directory | `dist` |
+| Functions directory | `netlify/functions` |
+| Node | 20 |
 
-3. **Cargar Datos Iniciales (Seed Data):**
-   - En el **SQL Editor**, copia y ejecuta el archivo:
-     [`Default Proyect/supabase/seed/001_seed_data.sql`](file:///c:/Users/olive/OneDrive/Documentos/Default_Project/Default%20Proyect/supabase/seed/001_seed_data.sql)
-   - Esto creará los registros iniciales de disponibilidad horaria, servicios, portafolio, testimonios y artículos de blog.
+### Conectar el sitio
 
-4. **Crear tu Usuario Administrador:**
-   - Abre el archivo:
-     [`Default Proyect/supabase/seed/002_create_admin_user.sql`](file:///c:/Users/olive/OneDrive/Documentos/Default_Project/Default%20Proyect/supabase/seed/002_create_admin_user.sql)
-   - Modifica el correo `admin_email` y la contraseña `admin_password` según tus preferencias.
-   - Ejecuta el script en el **SQL Editor**. Con este usuario podrás ingresar a `/login` y acceder a `/admin`.
+1. Repositorio en GitHub/GitLab → New site on Netlify (o `netlify init` / `netlify link` desde `Default Proyect`).
+2. Configurar variables de entorno (abajo) **antes** del primer build de producción.
+3. Primer deploy: draft (`netlify deploy`), no `--prod`.
+4. Stripe webhook: `https://<tu-sitio>/api/pagos/webhook` (rewrite a `stripe-webhook`). Alternativa: `https://<tu-sitio>/.netlify/functions/stripe-webhook`.
+5. Dominio custom en Netlify; `URL` del sitio se usa para `success_url` de Checkout.
 
-5. **Obtener las Claves de API:**
-   - Ve a **Project Settings > API**.
-   - Copia:
-     - **Project URL** (`https://xxxxxxxx.supabase.co`)
-     - **anon / public key** (`eyJ...`)
-     - **service_role key** (clave secreta para Netlify Functions).
+### Variables de entorno
 
----
+Nunca commitees `.env`. Copia `Default Proyect/.env.example` solo en local.
 
-## PASO 2: Configuración de Pasarela de Pagos (Stripe)
+**Build (Vite las incrusta en el JS; deben existir en el build de Netlify):**
 
-1. Ingresa a [dashboard.stripe.com](https://dashboard.stripe.com).
-2. Obtén tus claves en **Developers > API Keys**:
-   - `STRIPE_SECRET_KEY` (`sk_test_...` o `sk_live_...`)
-   - `VITE_STRIPE_PUBLIC_KEY` (`pk_test_...` o `pk_live_...`)
-3. **Configurar el Webhook:**
-   - Ve a **Developers > Webhooks > Add an endpoint**.
-   - **Endpoint URL**: `https://tu-dominio.netlify.app/.netlify/functions/stripe-webhook`
-   - **Eventos a escuchar**:
-     - `checkout.session.completed`
-     - `payment_intent.payment_failed`
-     - `charge.refunded`
-   - Copia el **Signing Secret** (`whsec_...`) y asígnalo a `STRIPE_WEBHOOK_SECRET`.
+| Variable | Uso |
+|----------|-----|
+| `VITE_SUPABASE_URL` | Cliente Supabase en el browser |
+| `VITE_SUPABASE_ANON_KEY` | Anon key (RLS) |
+| `VITE_STRIPE_PUBLIC_KEY` | Opcional (UI) |
+| `VITE_GA_TRACKING_ID` | Opcional (aún no cableado en el código) |
 
----
+**Runtime (solo Functions; no usar prefijo `VITE_`):**
 
-## PASO 3: Despliegue en Netlify
+| Variable | Uso |
+|----------|-----|
+| `SUPABASE_URL` | Mismo proyecto que `VITE_SUPABASE_URL`, leído por Functions |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin; nunca en el frontend |
+| `STRIPE_SECRET_KEY` | Checkout |
+| `STRIPE_WEBHOOK_SECRET` | Firma del webhook (body raw) |
+| `RESEND_API_KEY` | Email (si se usa) |
+| `ADMIN_EMAIL` | Destinatario admin |
+| `WHATSAPP_API_TOKEN` | WhatsApp Business |
+| `WHATSAPP_PHONE_NUMBER_ID` | ID del número |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | Cuenta Business |
 
-### Opción A: Conexión Automática con Git (Recomendada)
-1. Ve a [app.netlify.com](https://app.netlify.com) y selecciona **Add new site > Import an existing project**.
-2. Conecta tu repositorio de GitHub `Default_Project`.
-3. Configura los parámetros de build:
-   - **Base directory**: `Default Proyect`
-   - **Build command**: `npm run build`
-   - **Publish directory**: `Default Proyect/dist`
-   - **Functions directory**: `Default Proyect/netlify/functions`
-4. En **Site configuration > Environment variables**, añade las siguientes variables:
+Netlify inyecta `URL` / `DEPLOY_PRIME_URL` en Functions; el checkout las usa para `/pago/exito` y `/pago/error` (dominio del sitio, no el origin interno de la Function).
 
-| Variable | Tipo | Valor / Descripción |
-|---|---|---|
-| `VITE_SUPABASE_URL` | Frontend | URL del proyecto Supabase |
-| `VITE_SUPABASE_ANON_KEY` | Frontend | Llave anónima pública de Supabase |
-| `VITE_STRIPE_PUBLIC_KEY` | Frontend | Llave pública de Stripe |
-| `SUPABASE_URL` | Backend | URL de Supabase para las functions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Backend (Secreto) | Service Role Key de Supabase |
-| `STRIPE_SECRET_KEY` | Backend (Secreto) | Secret Key de Stripe |
-| `STRIPE_WEBHOOK_SECRET` | Backend (Secreto) | Signing secret del webhook |
-| `WHATSAPP_API_TOKEN` | Backend (Opcional) | Token de WhatsApp Business API |
-| `WHATSAPP_PHONE_NUMBER_ID` | Backend (Opcional) | ID de teléfono de WhatsApp API |
-| `NODE_VERSION` | Build | `18` |
+### Checklist previo a producción
 
-5. Haz clic en **Deploy Site**. Netlify compilará el frontend y desplegará las Edge/Serverless Functions.
+- [ ] Proyecto Supabase creado; `supabase db push` con `Default Proyect/supabase/migrations`
+- [ ] Seed / usuario admin (`supabase/seed/`)
+- [ ] Keys de Stripe **test** primero; webhook apuntando a la URL de Netlify
+- [ ] `VITE_*` y `SUPABASE_URL` coinciden con el mismo proyecto
+- [ ] RLS de `contactos`: insert público, select solo admin (hoy el schema de arquitectura permite select público de leads)
+- [ ] Probar SPA: recargar `/contacto`, `/admin`, `/pago/exito`
+- [ ] Probar POST `/api/pagos/crear-sesion` y el webhook
 
----
+### CLI local
 
-### Opción B: Despliegue Directo por CLI
-Desde la carpeta `Default Proyect`, puedes ejecutar:
-```powershell
-# En Windows PowerShell:
-.\deploy.ps1 -Prod
+Desde `Default Proyect/`:
 
-# O en Bash:
-./deploy.sh --prod
+```bash
+npm ci
+npm run build
+npx netlify-cli deploy --dir=dist --functions=netlify/functions
+# producción, solo cuando el draft esté validado:
+npx netlify-cli deploy --dir=dist --functions=netlify/functions --prod
 ```
 
----
+PowerShell: `.\deploy.ps1` (draft) o `.\deploy.ps1 -Prod`.
 
-## PASO 4: Configuración de CI/CD con GitHub Actions (Opcional pero Automatizado)
+## Google Antigravity
 
-Si deseas que cada `git push` a `master` o `main` despliegue automáticamente mediante GitHub Actions:
-1. En tu repositorio de GitHub, ve a **Settings > Secrets and variables > Actions**.
-2. Crea los siguientes secretos:
-   - `NETLIFY_AUTH_TOKEN`: Tu Personal Access Token generado en Netlify (User Settings > Applications > New access token).
-   - `NETLIFY_SITE_ID`: El API ID de tu sitio en Netlify (Site configuration > Site details).
-   - `VITE_SUPABASE_URL`: Tu URL de Supabase.
-   - `VITE_SUPABASE_ANON_KEY`: Tu clave anónima de Supabase.
-   - `VITE_STRIPE_PUBLIC_KEY`: Tu clave pública de Stripe.
+Antigravity no publica el sitio por sí mismo. Usa el MCP / CLI de Netlify.
 
-El archivo [`.github/workflows/deploy.yml`](file:///c:/Users/olive/OneDrive/Documentos/Default_Project/.github/workflows/deploy.yml) se encargará de validar tipos, compilar y desplegar en producción automáticamente.
+1. Abre el **Git root** (`Default_Project`) para que el `netlify.toml` con `base` aplique, **o** abre `Default Proyect` y en Netlify UI pon Base directory.
+2. Instala el MCP de Netlify (`npx -y @netlify/mcp`) y un personal access token. Contexto actualizado: pedir al agente que lea `https://netlify.ai`.
+3. No pegues secrets en el chat ni en markdown; usa el dashboard de Netlify o `netlify env:set`.
+4. Primer pase: **draft** (`netlify deploy`). Producción: `netlify deploy --prod` solo después de validar Functions y webhook.
+5. Si el agente no encuentra `package.json`, indícale la carpeta `"Default Proyect"` (espacio incluido).
 
----
+## Docker (solo estáticos)
 
-## PASO 5: Despliegue Alternativo en Contenedores (Docker)
+El `Dockerfile` en `Default Proyect/` genera Nginx con `dist`. Hay que pasar args de Vite en el build; no incluye Functions.
 
-Si prefieres alojar la aplicación en un VPS, Railway, Render o DigitalOcean:
 ```bash
 cd "Default Proyect"
-
-# 1. Construir la imagen Docker
-docker build -t oliver-prada-services:latest .
-
-# 2. Ejecutar el contenedor en el puerto 8080
-docker run -d -p 8080:80 --name oliver-prada-web oliver-prada-services:latest
+docker build --build-arg VITE_SUPABASE_URL=https://xxxx.supabase.co --build-arg VITE_SUPABASE_ANON_KEY=eyJxxxx -t op-services .
 ```
-La aplicación incluye servidor Nginx optimizado con compresión gzip, encabezados de seguridad y soporte para rutas SPA.
 
----
+## CI
 
-## ✅ Checklist de Verificación Post-Despliegue
+`.github/workflows/deploy.yml` corre `npm ci` + `npm run build` en `"Default Proyect"` (Node 20). El publish a Netlify lo hace el hook de Netlify sobre el repo, no un deploy token en GitHub.
 
-- [ ] La página principal (`/`) carga con estilos azul/negro y contenido inicial.
-- [ ] La navegación a `/servicios`, `/portafolio`, `/testimonios`, `/contacto`, `/agendar` funciona sin recargas completas.
-- [ ] El formulario de `/contacto` registra nuevos leads en la tabla `contactos` de Supabase.
-- [ ] El agendamiento en `/agendar` valida y crea citas en la tabla `agendamientos`.
-- [ ] La página de login en `/login` permite autenticar al administrador y redirige a `/admin`.
-- [ ] El panel `/admin` muestra las métricas de `get_dashboard_metrics` y permite gestionar contactos, proyectos y citas.
-- [ ] La sesión del administrador persiste al recargar la página (`F5`).
-- [ ] El webhook de Stripe responde exitosamente con código `200` y firma válida.
-- [ ] Lighthouse PWA pasa con score superior a 90.
+## Documentación de producto
+
+- [`Documentacion/BRIEF.md`](Documentacion/BRIEF.md)
+- [`Documentacion/Arquitectura.md`](Documentacion/Arquitectura.md)
+- [`Documentacion/backend.md`](Documentacion/backend.md)
+- [`Documentacion/frontend.md`](Documentacion/frontend.md)
+- [`Default Proyect/README.md`](Default%20Proyect/README.md)
