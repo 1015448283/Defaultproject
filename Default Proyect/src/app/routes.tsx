@@ -1,11 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes as RouterRoutes, Route } from 'react-router-dom';
 import { Toaster } from 'sonner';
 
+// Layouts
 const PublicLayout = lazy(() => import('../components/layout/PublicLayout'));
 const AuthLayout = lazy(() => import('../components/layout/AuthLayout'));
 const AdminLayout = lazy(() => import('../components/layout/AdminLayout'));
 
+// Public Pages
 const Home = lazy(() => import('../pages/public/Home'));
 const Services = lazy(() => import('../pages/public/Services'));
 const Contact = lazy(() => import('../pages/public/Contact'));
@@ -17,8 +19,10 @@ const PaymentSuccess = lazy(() => import('../pages/payment/PaymentSuccess'));
 const PaymentError = lazy(() => import('../pages/payment/PaymentError'));
 const NotFound = lazy(() => import('../pages/public/NotFound'));
 
+// Auth Page
 const Login = lazy(() => import('../pages/auth/Login'));
 
+// Admin Pages
 const Dashboard = lazy(() => import('../pages/admin/Dashboard'));
 const Contacts = lazy(() => import('../pages/admin/Contacts'));
 const Projects = lazy(() => import('../pages/admin/Projects'));
@@ -28,10 +32,17 @@ const ServicesAdmin = lazy(() => import('../pages/admin/ServicesAdmin'));
 const PortfolioAdmin = lazy(() => import('../pages/admin/PortfolioAdmin'));
 const ContentAdmin = lazy(() => import('../pages/admin/ContentAdmin'));
 
-function AppRoutes() {
+export function AppRoutes() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-dark-900 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500" /></div>}>
-      <Routes>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500" />
+        </div>
+      }
+    >
+      <RouterRoutes>
+        {/* Public Routes with Navbar + Footer */}
         <Route path="/" element={<PublicLayout />}>
           <Route index element={<Home />} />
           <Route path="servicios" element={<Services />} />
@@ -44,7 +55,18 @@ function AppRoutes() {
           <Route path="pago/error" element={<PaymentError />} />
           <Route path="*" element={<NotFound />} />
         </Route>
-        <Route path="/login" element={<AuthLayout><Login /></AuthLayout>} />
+
+        {/* Auth Route */}
+        <Route
+          path="/login"
+          element={
+            <AuthLayout>
+              <Login />
+            </AuthLayout>
+          }
+        />
+
+        {/* Protected Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="contactos" element={<Contacts />} />
@@ -54,11 +76,13 @@ function AppRoutes() {
           <Route path="servicios" element={<ServicesAdmin />} />
           <Route path="portafolio" element={<PortfolioAdmin />} />
           <Route path="contenido" element={<ContentAdmin />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
-      </Routes>
-      <Toaster position="top-right" />
+      </RouterRoutes>
+
+      <Toaster position="top-right" theme="dark" richColors />
     </Suspense>
   );
 }
 
-export const Routes = AppRoutes;
+export default AppRoutes;

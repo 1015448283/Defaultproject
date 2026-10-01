@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { supabase } from '../services/supabase';
 
 interface AuthState {
   user: any | null;
@@ -14,20 +15,25 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   loading: true,
   signIn: async (email, password) => {
-    const { data, error } = await (await import('../services/supabase')).supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     set({ user: data.user, token: data.session?.access_token });
     return data;
   },
   signOut: async () => {
-    await (await import('../services/supabase')).supabase.auth.signOut();
+    await supabase.auth.signOut();
     set({ user: null, token: null });
   },
   initialize: async () => {
-    const { data: { session } } = await (await import('../services/supabase')).supabase.auth.getSession();
-    set({ user: session?.user ?? null, loading: false });
-    (await import('../services/supabase')).supabase.auth.onAuthStateChange((_event, session) => {
-      set({ user: session?.user ?? null });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      set({ user: session?.user ?? null, token: session?.access_token ?? null, loading: false });
+    } catch {
+      set({ user: null, token: null, loading: false });
+    }
+
+    supabase.auth.onAuthStateChange((_event, session) => {
+      set({ user: session?.user ?? null, token: session?.access_token ?? null, loading: false });
     });
   },
 }));
